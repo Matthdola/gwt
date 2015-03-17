@@ -17,11 +17,16 @@ public class StockPriceServiceImpl extends RemoteServiceServlet implements
 
 		StockPrice2[] prices = new StockPrice2[symbols.length];
 		for(int i=0; i < symbols.length; i++){
+			if(symbols[i].equals("ERR")){
+				throw new DelistedException("ERR");
+			}
+
 			double price = rnd.nextDouble() * MAX_PRICE;
 			double change = price * MAX_PRICE_CHANGE * (rnd.nextDouble() * 2f - 1f);
 
 			prices[i] = new StockPrice2(symbols[i], price, change);
 		}
+		
 		return prices;
 	}
 }

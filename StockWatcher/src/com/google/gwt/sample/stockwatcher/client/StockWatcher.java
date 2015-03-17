@@ -23,19 +23,31 @@ import com.google.gwt.user.client.ui.VerticalPanel;
 import com.google.gwt.user.client.ui.HorizontalPanel;
 import com.google.gwt.user.client.ui.FlexTable;
 import com.google.gwt.user.client.Window;
+import com.google.gwt.http.client.URL;
+
 
 import com.google.gwt.user.client.Timer;
 import com.google.gwt.user.client.Random;
 import com.google.gwt.i18n.client.NumberFormat;
 import com.google.gwt.i18n.client.DateTimeFormat;
-import java.util.Date;
-
-
 import com.google.gwt.user.client.ui.RootPanel;
+
+import java.util.Date;
+import java.util.Iterator;
 import java.util.ArrayList;
+
+import com.google.gwt.http.client.Request;
+import com.google.gwt.http.client.RequestBuilder;
+import com.google.gwt.http.client.RequestCallback;
+import com.google.gwt.http.client.RequestException;
+import com.google.gwt.http.client.Response;
 
 import com.google.gwt.core.client.GWT;
 import com.google.gwt.user.client.rpc.AsyncCallback;
+
+import com.google.gwt.core.client.JsArray;
+import com.google.gwt.core.client.JavaScriptObject;
+import com.google.gwt.core.client.JsonUtils;
 
 
 /**
@@ -43,6 +55,8 @@ import com.google.gwt.user.client.rpc.AsyncCallback;
  */
 public class StockWatcher implements EntryPoint {
   private static final int REFRESH_INTERVAL = 5000; //ms
+  private static final String JSON_URL = GWT.getModuleBaseURL() + "stockPrices?q=";
+
   private VerticalPanel mainPanel = new VerticalPanel();
   private FlexTable stocksFlexTable = new FlexTable();
   private HorizontalPanel addPanel = new HorizontalPanel();
@@ -178,44 +192,84 @@ public class StockWatcher implements EntryPoint {
     private void refreshWatchList(){
         // final double MAX_PRICE = 100.0; //100.O$
         // final double MAX_PRICE_CHANGE = 0.02;
+        if(stocks.size() == 0) {
+            return;
+        }
+
         //Initialize the service proxy
         if(stockPriceSvc == null) {
             stockPriceSvc = GWT.create(StockPriceService.class);
         }
-
-        //setup the callback object
-        AsyncCallback<StockPrice2[]> callback = new AsyncCallback<StockPrice2[]>(){
-            public void onFailure(Throwable caught){
-                //If the stock code is in the list of delisted codes, display en error message
-                String details = caught.getMessage();
-                if(caught instanceof DelistedException) {
-                    details = "company '"+((DelistedException) caught).getSymbol() + "' was delisted";
-                } 
-
-                errorMsgLabel.setText("Error: " + details);
-                errorMsgLabel.setVisible(true);
+        String url = JSON_URL;
+        //Append watch list stock symbols to query URL
+        Iterator<String> iter = stocks.iterator();
+        while(iter.hasNext()){
+            url += iter.next();
+            if(iter.hasNext()){
+                url += "+";
             }
+        }
 
-            public void onSuccess(StockPrice2[] result) {
-                updateTable(result);
-            }
-        };
+        url = URL.encode(url);
+        RequestBuilder builder = new RequestBuilder(RequestBuilder.GET, url);
+        
+        try{
 
-        //Make the call to the stock price service
-        stockPriceSvc.getPrices(stocks.toArray(new String[0]), callback);
+            Request request = builder.sendRequest(null, new RequestCallback() {
+                public void onError(Request request, Throwable exception) {
+                    displayError("could'n retrieve JSON");
+                }
+
+                public void onResponseReceived(Request request, Response response) {
+                    if(200 == response.getStatusCode()) {
+                        updateTable(JsonUtils.<JsArray<StockData>>safeEval(response.getText()));
+                    }else{
+                        displayError("Couldn't retrieve JSON (" + response.getStatusText() + ")");
+                    }
+                }
+            });
+
+        } catch (RequestException e) {
+            displayError("Couldn't retrieve JSON");
+        }
+
+
+
+        //send request to server and handle errors
+        // //setup the callback object
+        // AsyncCallback<StockPrice2[]> callback = new AsyncCallback<StockPrice2[]>(){
+        //     public void onFailure(Throwable caught){
+        //         //If the stock code is in the list of delisted codes, display en error message
+        //         String details = caught.getMessage();
+        //         if(caught instanceof DelistedException) {
+        //             details = "company '"+((DelistedException) caught).getSymbol() + "' was delisted";
+        //         } 
+
+        //         errorMsgLabel.setText("Error: " + details);
+        //         errorMsgLabel.setVisible(true);
+        //     }
+
+        //     public void onSuccess(StockPrice2[] result) {
+        //         updateTable(result);
+        //     }
+        // };
+
+        // //Make the call to the stock price service
+        // stockPriceSvc.getPrices(stocks.toArray(new String[0]), callback);
 
     }
 
-    private void updateTable(StockPrice2[] prices) {
-        for(int i = 0; i < prices.length; i++){
-            updateTable(prices[i]);
+    private void updateTable(JsArray<StockData> prices) {
+
+        for(int i = 0; i < prices.length(); i++){
+            updateTable(prices.get(i));
         }
 
         //Display timestamp showing last refresh.
         lastUpdatedLabel.setText("Last update : " + 
             DateTimeFormat.getMediumDateTimeFormat().format(new Date()));
 
-        //clean any errors
+        //clean any errors.
         errorMsgLabel.setVisible(false);
     }
 
@@ -224,7 +278,7 @@ public class StockWatcher implements EntryPoint {
     *
     * @param price Stock data for a single row
     */
-    private void updateTable(StockPrice2 price){
+    private void updateTable(StockData price){
         //Make sure the stock is full in the stock table
         if(!stocks.contains(price.getSymbol())){
             return;
@@ -256,5 +310,14 @@ public class StockWatcher implements EntryPoint {
         }
 
         changeWidget.setStyleName(changeStyleName);
+    }
+
+    /** 
+    * If can't get JSON, display error message
+    * @param error
+    */
+    private void displayError(String error) {
+        errorMsgLabel.setText("Error: " + error);
+        errorMsgLabel.setVisible(true);
     }
 }
